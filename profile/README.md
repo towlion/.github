@@ -1,42 +1,44 @@
 # Towlion
 
-**Self-hosted micro-PaaS for deploying web applications directly from GitHub.**
+**A self-hosted, GitHub-native micro-PaaS for deploying web applications on your own infrastructure.**
 
-No dashboards. No complex infrastructure. Just push code and deploy.
+Deploy full-stack applications to a single server using nothing but GitHub repositories and Actions. No external dashboards, no managed services — complete ownership of your deployment pipeline.
 
 ---
 
-### How it works
+### How It Works
 
 ```
-your repo  -->  GitHub Actions  -->  your server
+Repository  →  GitHub Actions  →  Your Server
 ```
 
-Every application is a GitHub repository. Push to `main` and it deploys automatically to your own server via SSH. Fork any app to self-host it on your own infrastructure.
+Every application is a GitHub repository. Push to `main` and it deploys automatically via SSH. Fork any app to self-host it independently on your own infrastructure.
 
-### What's included
+### Platform Services
 
 Each application runs on a single Debian server with shared infrastructure:
 
-- **Caddy** for reverse proxy and automatic TLS
-- **PostgreSQL** for databases
-- **Redis** for caching and background jobs
-- **MinIO** for S3-compatible object storage
+- **Caddy** — reverse proxy with automatic TLS
+- **PostgreSQL** — relational database with per-app credential isolation
+- **Redis** — caching and background job processing
+- **MinIO** — S3-compatible object storage
+- **Loki + Promtail** — centralized log aggregation
+- **Grafana** — monitoring dashboards and alerting
 
-### Get started
+### Get Started
 
-1. Create a new app from the **[app-template](https://github.com/towlion/app-template)** (click "Use this template")
-2. Write your application code (FastAPI backend, optional Next.js frontend)
-3. Configure your server secrets in GitHub
-4. Push to `main` — your app is live
+1. Create a new app from the **[app-template](https://github.com/towlion/app-template)**
+2. Build your application (FastAPI backend, optional Next.js frontend)
+3. Configure server credentials in GitHub Secrets
+4. Push to `main` — your app deploys automatically
 
-### Repositories
+### Documentation
 
-| Repo | Purpose |
-|------|---------|
-| **[platform](https://github.com/towlion/platform)** | Architecture docs, spec, validator, governance |
-| **[app-template](https://github.com/towlion/app-template)** | Template repo for bootstrapping new apps |
+| Repository | Description |
+|---|---|
+| **[platform](https://github.com/towlion/platform)** | Architecture, specification, infrastructure scripts, and validator |
+| **[app-template](https://github.com/towlion/app-template)** | Template repository for bootstrapping new applications |
 
-### Built for
+### Designed For
 
-Small SaaS apps, developer tools, AI-generated applications, and personal product ecosystems. Optimized for indie developers who want production infrastructure without the complexity.
+Independent developers and small teams building SaaS products, developer tools, and AI-powered applications — with full control over their production infrastructure.
