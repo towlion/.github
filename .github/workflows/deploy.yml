@@ -1,0 +1,140 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      caddyfile-template:
+        description: 'Caddyfile template with __APP_DOMAIN__, __APP_NAME__ placeholders'
+        required: true
+        type: string
+      use-deployment-api:
+        description: 'Create GitHub deployment status'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      SERVER_HOST:
+        required: true
+      SERVER_USER:
+        required: true
+      SERVER_SSH_KEY:
+        required: true
+      APP_DOMAIN:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create deployment
+        if: inputs.use-deployment-api
+        id: deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              auto_merge: false,
+              required_contexts: [],
+              description: `Deploy ${context.sha.substring(0, 7)} to production`
+            });
+            return deployment.data.id;
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          CADDYFILE_TEMPLATE: ${{ inputs.caddyfile-template }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: CADDYFILE_TEMPLATE
+          script: |
+            APP_NAME="${{ github.event.repository.name }}"
+            APP_DOMAIN="${{ secrets.APP_DOMAIN }}"
+            cd /opt/apps/${APP_NAME}
+            git pull origin main
+
+            # Verify app .env exists
+            if [ ! -f deploy/.env ]; then
+              echo "ERROR: deploy/.env not found. Create it from deploy/env.template first."
+              exit 1
+            fi
+
+            # Create app-specific database if it doesn't exist
+            APP_DB=$(echo "${APP_NAME}" | tr '-' '_')_db
+            docker compose -f /opt/platform/docker-compose.yml exec -T postgres \
+              psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '${APP_DB}'" | grep -q 1 \
+              || docker compose -f /opt/platform/docker-compose.yml exec -T postgres \
+              psql -U postgres -c "CREATE DATABASE ${APP_DB}"
+
+            # Source per-app credentials and update deploy/.env if available
+            CREDENTIALS_FILE="/opt/platform/credentials/${APP_NAME}.env"
+            if [ -f "$CREDENTIALS_FILE" ]; then
+              echo "Using per-app credentials from $CREDENTIALS_FILE"
+              source "$CREDENTIALS_FILE"
+              sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${APP_DB}|" deploy/.env
+              sed -i "s|^S3_ACCESS_KEY=.*|S3_ACCESS_KEY=${S3_ACCESS_KEY}|" deploy/.env
+              sed -i "s|^S3_SECRET_KEY=.*|S3_SECRET_KEY=${S3_SECRET_KEY}|" deploy/.env
+              sed -i "s|^S3_BUCKET=.*|S3_BUCKET=${APP_NAME}-uploads|" deploy/.env
+              echo "deploy/.env updated with per-app credentials"
+            else
+              echo "WARNING: Per-app credentials not found at $CREDENTIALS_FILE"
+              echo "Run create-app-credentials.sh ${APP_NAME} for isolated credentials."
+              echo "Falling back to existing deploy/.env credentials."
+            fi
+
+            # Build and start app containers
+            docker compose -p ${APP_NAME} -f deploy/docker-compose.yml up -d --build
+
+            # Scan built image for vulnerabilities (non-blocking)
+            APP_IMAGE=$(docker compose -p ${APP_NAME} -f deploy/docker-compose.yml images app --format "{{.Repository}}:{{.Tag}}" | head -1)
+            if command -v trivy &>/dev/null; then
+              echo "Scanning ${APP_IMAGE} for vulnerabilities..."
+              trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${APP_IMAGE}" || true
+            fi
+
+            # Run database migrations
+            docker compose -p ${APP_NAME} -f deploy/docker-compose.yml exec -T app alembic -c app/alembic.ini upgrade head
+
+            # Health check
+            bash scripts/health-check.sh https://${APP_DOMAIN}/health
+
+            # Generate Caddyfile from template
+            echo "${CADDYFILE_TEMPLATE}" \
+              | sed "s|__APP_DOMAIN__|${APP_DOMAIN}|g" \
+              | sed "s|__APP_NAME__|${APP_NAME}|g" \
+              > /opt/platform/caddy-apps/${APP_NAME}.caddy
+            docker compose -f /opt/platform/docker-compose.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+
+      - name: Update deployment status (success)
+        if: success() && inputs.use-deployment-api
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'success',
+              environment_url: `https://${{ secrets.APP_DOMAIN }}`,
+              description: 'Deployment succeeded'
+            });
+
+      - name: Update deployment status (failure)
+        if: failure() && inputs.use-deployment-api
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'failure',
+              description: 'Deployment failed'
+            });
