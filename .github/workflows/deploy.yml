@@ -78,10 +78,10 @@ jobs:
               NEXT_SLOT="blue"
             fi
 
-            # Update container name in Caddyfile to use slotted name
-            # Replace APP_NAME-app-1 with APP_NAME-NEXT_SLOT-app-1
+            # Update container names in Caddyfile to use slotted names
+            # Replace APP_NAME-SERVICE-1 with APP_NAME-NEXT_SLOT-SERVICE-1 for all services
             CADDYFILE_CONTENT=$(echo "$CADDYFILE_CONTENT" \
-              | sed "s|${APP_NAME}-app-1|${APP_NAME}-${NEXT_SLOT}-app-1|g")
+              | sed "s|${APP_NAME}-\([a-z]*\)-1|${APP_NAME}-${NEXT_SLOT}-\1-1|g")
 
             # Use blue-green deploy script
             DEPLOY_SCRIPT="/opt/platform/infrastructure/deploy-blue-green.sh"
