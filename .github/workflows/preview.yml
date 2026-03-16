@@ -66,11 +66,10 @@ jobs:
 
             # Generate preview .env with schema-aware DATABASE_URL
             sed "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://postgres:$(grep POSTGRES_PASSWORD /opt/platform/.env | cut -d= -f2)@postgres:5432/${APP_DB}?options=-csearch_path%3D${SCHEMA_NAME}|" \
-              /opt/apps/${APP_NAME}/deploy/.env > deploy/.env.pr-${PR_NUMBER}
+              /opt/apps/${APP_NAME}/deploy/.env > deploy/.env
 
             # Build and start all services
-            docker compose -p ${APP_NAME}-pr-${PR_NUMBER} -f deploy/docker-compose.yml \
-              --env-file deploy/.env.pr-${PR_NUMBER} up -d --build
+            docker compose -p ${APP_NAME}-pr-${PR_NUMBER} -f deploy/docker-compose.yml up -d --build
 
             # Run database migrations against the preview schema
             docker compose -p ${APP_NAME}-pr-${PR_NUMBER} -f deploy/docker-compose.yml \
