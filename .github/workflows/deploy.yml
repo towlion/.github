@@ -57,60 +57,41 @@ jobs:
           script: |
             APP_NAME="${{ github.event.repository.name }}"
             APP_DOMAIN="${{ secrets.APP_DOMAIN }}"
-            cd /opt/apps/${APP_NAME}
-            git pull origin main
+            APP_DIR="/opt/apps/${APP_NAME}"
 
-            # Verify app .env exists
-            if [ ! -f deploy/.env ]; then
-              echo "ERROR: deploy/.env not found. Create it from deploy/env.template first."
+            # Resolve Caddyfile template placeholders
+            CADDYFILE_CONTENT=$(echo "${CADDYFILE_TEMPLATE}" \
+              | sed "s|__APP_DOMAIN__|${APP_DOMAIN}|g" \
+              | sed "s|__APP_NAME__|${APP_NAME}|g")
+
+            # Determine active slot to use correct container name in Caddyfile
+            SLOT_FILE="${APP_DIR}/.deploy-slot"
+            if [ -f "$SLOT_FILE" ]; then
+              CURRENT_SLOT=$(cat "$SLOT_FILE")
+            else
+              CURRENT_SLOT="blue"
+            fi
+            # The deploy script will use the NEXT slot
+            if [ "$CURRENT_SLOT" = "blue" ]; then
+              NEXT_SLOT="green"
+            else
+              NEXT_SLOT="blue"
+            fi
+
+            # Update container name in Caddyfile to use slotted name
+            # Replace APP_NAME-app-1 with APP_NAME-NEXT_SLOT-app-1
+            CADDYFILE_CONTENT=$(echo "$CADDYFILE_CONTENT" \
+              | sed "s|${APP_NAME}-app-1|${APP_NAME}-${NEXT_SLOT}-app-1|g")
+
+            # Use blue-green deploy script
+            DEPLOY_SCRIPT="/opt/platform/infrastructure/deploy-blue-green.sh"
+            if [ ! -f "$DEPLOY_SCRIPT" ]; then
+              echo "ERROR: deploy-blue-green.sh not found at $DEPLOY_SCRIPT"
+              echo "Re-run bootstrap-server.sh to install the latest infrastructure scripts."
               exit 1
             fi
 
-            # Create app-specific database if it doesn't exist
-            APP_DB=$(echo "${APP_NAME}" | tr '-' '_')_db
-            docker compose -f /opt/platform/docker-compose.yml exec -T postgres \
-              psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '${APP_DB}'" | grep -q 1 \
-              || docker compose -f /opt/platform/docker-compose.yml exec -T postgres \
-              psql -U postgres -c "CREATE DATABASE ${APP_DB}"
-
-            # Source per-app credentials and update deploy/.env if available
-            CREDENTIALS_FILE="/opt/platform/credentials/${APP_NAME}.env"
-            if [ -f "$CREDENTIALS_FILE" ]; then
-              echo "Using per-app credentials from $CREDENTIALS_FILE"
-              source "$CREDENTIALS_FILE"
-              sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${APP_DB}|" deploy/.env
-              sed -i "s|^S3_ACCESS_KEY=.*|S3_ACCESS_KEY=${S3_ACCESS_KEY}|" deploy/.env
-              sed -i "s|^S3_SECRET_KEY=.*|S3_SECRET_KEY=${S3_SECRET_KEY}|" deploy/.env
-              sed -i "s|^S3_BUCKET=.*|S3_BUCKET=${APP_NAME}-uploads|" deploy/.env
-              echo "deploy/.env updated with per-app credentials"
-            else
-              echo "WARNING: Per-app credentials not found at $CREDENTIALS_FILE"
-              echo "Run create-app-credentials.sh ${APP_NAME} for isolated credentials."
-              echo "Falling back to existing deploy/.env credentials."
-            fi
-
-            # Build and start app containers
-            docker compose -p ${APP_NAME} -f deploy/docker-compose.yml up -d --build
-
-            # Scan built image for vulnerabilities (non-blocking)
-            APP_IMAGE=$(docker compose -p ${APP_NAME} -f deploy/docker-compose.yml images app --format "{{.Repository}}:{{.Tag}}" | head -1)
-            if command -v trivy &>/dev/null; then
-              echo "Scanning ${APP_IMAGE} for vulnerabilities..."
-              trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${APP_IMAGE}" || true
-            fi
-
-            # Run database migrations
-            docker compose -p ${APP_NAME} -f deploy/docker-compose.yml exec -T app alembic -c app/alembic.ini upgrade head
-
-            # Health check
-            bash scripts/health-check.sh https://${APP_DOMAIN}/health
-
-            # Generate Caddyfile from template
-            echo "${CADDYFILE_TEMPLATE}" \
-              | sed "s|__APP_DOMAIN__|${APP_DOMAIN}|g" \
-              | sed "s|__APP_NAME__|${APP_NAME}|g" \
-              > /opt/platform/caddy-apps/${APP_NAME}.caddy
-            docker compose -f /opt/platform/docker-compose.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+            bash "$DEPLOY_SCRIPT" "$APP_NAME" "$APP_DIR" "$APP_DOMAIN" "$CADDYFILE_CONTENT"
 
       - name: Update deployment status (success)
         if: success() && inputs.use-deployment-api
