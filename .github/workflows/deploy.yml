@@ -26,12 +26,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create deployment
         if: inputs.use-deployment-api
         id: deployment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const deployment = await github.rest.repos.createDeployment({
@@ -95,7 +95,7 @@ jobs:
 
       - name: Update deployment status (success)
         if: success() && inputs.use-deployment-api
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.repos.createDeploymentStatus({
@@ -109,7 +109,7 @@ jobs:
 
       - name: Update deployment status (failure)
         if: failure() && inputs.use-deployment-api
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.repos.createDeploymentStatus({
