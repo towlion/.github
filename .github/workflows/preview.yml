@@ -91,7 +91,7 @@ jobs:
               caddy reload --config /etc/caddy/Caddyfile
 
       - name: Post preview URL
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const previewDomain = `pr-${{ github.event.number }}.preview.${{ secrets.PREVIEW_DOMAIN }}`;

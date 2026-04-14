@@ -31,7 +31,7 @@ jobs:
       - name: Create deployment
         if: inputs.use-deployment-api
         id: deployment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const deployment = await github.rest.repos.createDeployment({
@@ -95,7 +95,7 @@ jobs:
 
       - name: Update deployment status (success)
         if: success() && inputs.use-deployment-api
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.createDeploymentStatus({
@@ -109,7 +109,7 @@ jobs:
 
       - name: Update deployment status (failure)
         if: failure() && inputs.use-deployment-api
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.createDeploymentStatus({
